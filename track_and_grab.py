@@ -116,11 +116,11 @@ class TrackAndGrabNode(Node):
         self.running = True
         self.last_pitch_yaw = (0, 0)
 
-        self.color_sequence = ['red', 'green', 'blue']
+        self.color_sequence = ['red', 'green', 'red']
         self.curr_color = 0
         self.stack_count = 0
-        self.cube_height = 0.04 
-        self.stack_location = [0.20, 0.00, 0.05]
+        self.cube_height = 0.03 
+        self.stack_location = [0.20, 0.0, 0.03]
         self.target_color = self.color_sequence[self.curr_color]
 
         self.enable_disp = 1
@@ -244,10 +244,10 @@ class TrackAndGrabNode(Node):
         self.moving = True # Throw the "Busy" sign up immediately
         self.get_logger().info("Vision Paused. Executing Arm Sequence...")
 
+        position[0] += 0.02 # 前方补偿(forward compensation)
+        
         set_servo_position(self.joints_pub, 0.5, ((10,200),))
         time.sleep(1.5)
-
-        position[0] += 0.02 # 前方补偿(forward compensation)
 
         if position[2] < 0.2:
             yaw = 80
@@ -260,12 +260,12 @@ class TrackAndGrabNode(Node):
             set_servo_position(self.joints_pub, 1.5, ((1, res.pulse[0]), (2, res.pulse[1]), (3, res.pulse[2]), (4, res.pulse[3]), (5, res.pulse[4])))
             time.sleep(1.5)
             
-        # Close Gripper 
+        # Close Gripper
         set_servo_position(self.joints_pub, 0.5, ((10, 650),))
         time.sleep(1.0)
         
         # LIFT
-        transit_height = 0.15 
+        transit_height = 0.15 # 15cm high is usually safe to clear other cubes
         transit_pos = [position[0], position[1], transit_height]
         
         msg_lift = set_pose_target(transit_pos, yaw, [-180.0, 180.0], 1.0)
@@ -274,6 +274,7 @@ class TrackAndGrabNode(Node):
             set_servo_position(self.joints_pub, 1.0, ((1, res_lift.pulse[0]), (2, res_lift.pulse[1]), (3, res_lift.pulse[2]), (4, res_lift.pulse[3]), (5, res_lift.pulse[4])))
             time.sleep(1.0)
 
+        # move to stack location 
         # Move to the X, Y of the stack
         high_stack_pos = [self.stack_location[0], self.stack_location[1], transit_height]
         
@@ -294,12 +295,13 @@ class TrackAndGrabNode(Node):
             set_servo_position(self.joints_pub, 1.0, ((1, res_drop.pulse[0]), (2, res_drop.pulse[1]), (3, res_drop.pulse[2]), (4, res_drop.pulse[3]), (5, res_drop.pulse[4])))
             time.sleep(1.0)
             
-            # Open Gripper to release the cube
-            set_servo_position(self.joints_pub, 1.0, ((10, 200),)) 
-            time.sleep(1.0)
+        # Open Gripper to release the cube
+        set_servo_position(self.joints_pub, 1.0, ((10, 200),)) 
+        time.sleep(1.0)
 
+        # color switching
         # Lift up away from the finished stack
-        drop_pos[2] += 0.05
+        drop_pos[2] += 0.03
         msg_up = set_pose_target(drop_pos, 80, [-180.0, 180.0], 1.0)
         res_up = self.send_request(self.set_pose_target_client, msg_up)
         if res_up.pulse:
@@ -318,7 +320,7 @@ class TrackAndGrabNode(Node):
             self.start = False 
 
         # Return to default position
-        set_servo_position(self.joints_pub, 1.5, ((1, 500), (2, 720), (3, 100), (4, 150), (5, 500), (10, 200)))
+        set_servo_position(self.joints_pub, 1.5, ((1, 500), (2, 720), (3, 120), (4, 60), (5, 500), (10, 200)))
         time.sleep(1.5)
         self.tracker = ColorTracker(self.target_color) # Tell vision to find the next color
         
@@ -330,13 +332,13 @@ class TrackAndGrabNode(Node):
     def main(self):
         while self.running:
             if self.moving:
-                # While moving, clear the queue
+                # While moving, clear the queue so it doesn't get "stale"
                 while not self.image_queue.empty():
                     try:
                         self.image_queue.get_nowait()
                     except queue.Empty:
                         break
-                time.sleep(0.1) # Rest the CPU
+                time.sleep(0.1) # Reset the CPU
                 continue
             try:
                 ros_rgb_image, ros_depth_image, depth_camera_info = self.image_queue.get(block=True, timeout=1)
